@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Sign Language Recognition</title>
+    <!-- Load MediaPipe dependencies with specific versions and properly ordered -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js" crossorigin="anonymous"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow: hidden;/* Prevent scrolling */
+            width: 100vw;
+            height: 100vh;
+        }
+        .container {
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            height: 100vh; /* Full viewport height */
+            max-width: 100%;
+            padding: 0;
+            box-sizing: border-box;
+            position: relative;
+        }
+        /* Add this style to center the video and add black bars if needed */
+        .video-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            max-width: 100%;
+            margin: 0;
+            overflow: hidden;
+            box-sizing: border-box;
+            background-color: black; /* Background color for letterboxing */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .fullscreen .video-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            max-width: 100%;
+            z-index: 1000;
+            border: none;
+            margin: 0;
+        }
+        #output-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Changed from cover to contain to prevent stretching */
+        }
+        #input-video {
+            transform: rotateY(180deg);
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Changed from cover to contain to prevent stretching */
+            position: absolute;
+            top: 0;
+            left: 0;
+            opacity: 0; /* Hide actual video element */
+        }
+        .predictions {
+            position: absolute;
+            /* border: 1px solid #ccc; */
+            padding: 15px;
+            border-radius: 5px;
+            width: 250px;
+            max-width: 300px;
+            max-height: 300px;
+            overflow-y: auto;
+            box-sizing: border-box;
+            /* background: rgba(255, 255, 255, 0.8); */
+            top: 10px;
+            left: 10px;
+            z-index: 1001;
+            cursor: grab;
+        }
+        .fullscreen .predictions {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            width: 250px;
+            max-height: 300px;
+            background: rgba(255, 255, 255, 0.8);
+            z-index: 1001;
+        }
+        .prediction-bar {
+            display: flex;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+        .bar {
+            height: 30px;
+            background-color: #4CAF50;
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            padding-left: 5px;
+            color: white;
+            font-weight: bold;
+        }
+        .sentence {
+            position: fixed;
+            background-color: rgba(245, 166, 35, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            margin: 0;
+            font-size: 18px;
+            min-height: 24px;
+            width: 80%;
+            box-sizing: border-box;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1001;
+        }
+        .fullscreen .sentence {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            background: rgba(245, 166, 35, 0.8);
+            z-index: 1001;
+        }
+        #status {
+            margin-top: 10px;
+            color: #666;
+            position: fixed;
+        }
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+            width: 10%;
+            padding: 0 10px;
+            box-sizing: border-box;
+            position: fixed;
+            top: 120px;
+        }
+        .cbuttons {
+            display: flex;
+            gap: 10px;
+            width: auto;
+            justify-content: center;
+            top: 40px;
+            right: 20px;
+            flex-direction: column;
+            position: fixed;
+        }
+        .fullscreen .controls {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1001;
+            position: fixed;
+            top: 8%;
+            left: 40%;
+            transform: translateY(-50%);
+            flex-direction: column;
+        }
+        button {
+            padding: 0;
+            background-color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            width: 45px;
+            height: 45px;
+            align-items: center;
+            justify-content: center;
+            display: flex;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .landmarks-hidden {
+            background-color: #f8f8f8;
+            opacity: 0.7;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            body {
+                padding: 0;
+            }
+            .container {
+                flex-direction: column;
+                align-items: center;
+            }
+            .video-container {
+                width: 100%;
+                max-width: 100%;
+                height: auto;
+            }
+            #output-canvas, #input-video {
+                width: 100%;
+            }
+            .predictions {
+                height: auto;
+                max-height: 250px;
+            }
+            h1 {
+                font-size: 24px;
+                margin: 10px 0;
+            }
+            .cbuttons {
+                right: 18px; /* Slightly closer to edge on small screens */
+            }
+        }
+        
+        /* Landscape mode on mobile */
+        @media (max-width: 768px) and (orientation: landscape) {
+            .video-container {
+                height: 100vh;
+            }
+            .controls {
+                flex-direction: row;
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+            .fullscreen .controls {
+                bottom: 5px;
+            }
+            .fullscreen .predictions {
+                max-height: 150px;
+                width: 200px;
+            }
+            .camera-buttons {
+                flex-direction: row;
+                width: auto;
+            }
+            .predictions {
+                max-height: 150px;
+                width: 200px;
+            }
+            .cbuttons {
+                flex-direction: column; /* Keep vertical even in landscape */
+                top: 10px;
+                right: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- <div class="sentence" id="sentence">
+     </div>  -->
+    
+    <div class="container">
+        <div class="video-container">
+            <video id="input-video"></video>
+            <canvas id="output-canvas"></canvas>
+        </div>
+        
+        <div class="predictions">
+            <h2>Predictions</h2>
+            <div id="predictions-container">
+                Prediction bars will be generated here
+             </div>  
+        </div>
+        <button id="fullscreen-btn">Fullscreen</button>
+    </div>
+    
+    <div id="status">Status: Initializing...</div>
+    
+    <div class="controls">
+        <div class="cbuttons">
+            <button id="toggle-camera-btn" title="Switch Camera">
+                <svg class="svg-button" width="30" height="27" viewBox="0 0 30 27" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M6.448 4.52399H9.853L11.215 1.79999H18.025L19.387 4.52399H22.792V15.42H6.448V4.52399Z" stroke="#0038A8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M14.62 12.015C16.1244 12.015 17.344 10.7954 17.344 9.29102C17.344 7.78659 16.1244 6.56702 14.62 6.56702C13.1156 6.56702 11.896 7.78659 11.896 9.29102C11.896 10.7954 13.1156 12.015 14.62 12.015Z" stroke="#0038A8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M14.62 22.911C7.09767 22.911 1 19.8621 1 16.101C1 15.1326 1.40451 14.2112 2.13318 13.377M14.62 22.911L11.896 20.187M14.62 22.911L11.896 25.635M20.068 22.3444C24.8786 21.2936 28.24 18.8931 28.24 16.101C28.24 15.1326 27.8355 14.2112 27.1068 13.377" stroke="#0038A8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>                    
+            </button>
+            <button id="toggle-landmarks-btn" title="Landmarks">
+                <svg class="svg-button" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M1 12C1 12 5 4 12 4C19 4 23 12 23 12C23 12 19 20 12 20C5 20 1 12 1 12Z" stroke="#0038A8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="#0038A8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+            <button id="clear-btn"></button>
+            <button id="toggle-predictions-btn" style="position: absolute; top: 105%;">
+                <svg class="prediction-svg" width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M18.0733 16.1698L19.4642 20.345C19.6041 20.7644 19.5929 21.2195 19.4326 21.6316C19.2724 22.0436 18.9732 22.3867 18.5868 22.6015C17.1015 23.4281 15.236 23.8333 13 23.8333C10.764 23.8333 8.8985 23.4281 7.41325 22.6015C7.02681 22.3867 6.72759 22.0436 6.56735 21.6316C6.40712 21.2195 6.39594 20.7644 6.53575 20.345L7.92783 16.1698C9.38542 17.2798 11.1679 17.879 13 17.875C14.9067 17.875 16.6638 17.2401 18.0733 16.1698ZM13 2.16663C14.4484 2.16663 15.7972 2.58696 16.9325 3.31388C16.8437 3.65296 16.7072 3.90321 16.5349 4.07654C16.2608 4.34954 15.795 4.53154 15.0995 4.58571L14.859 4.59979L14.4484 4.61063C12.0987 4.78288 12.1572 8.39579 14.625 8.39579C15.5892 8.39579 16.2034 8.59188 16.5349 8.92338C16.8079 9.19746 16.9899 9.66329 17.0441 10.3588L17.0582 10.5993L17.069 11.0099C17.173 12.4334 18.5402 12.9729 19.6018 12.6284C18.8874 14.1258 17.6851 15.3357 16.1922 16.0597C14.6994 16.7836 13.0048 16.9784 11.3866 16.6122C9.76846 16.2459 8.3229 15.3404 7.28728 14.0442C6.25166 12.748 5.68753 11.1382 5.6875 9.47913C5.6875 7.53973 6.45792 5.67977 7.82928 4.30841C9.20064 2.93705 11.0606 2.16663 13 2.16663ZM19.7708 2.16663C19.7708 3.41246 20.0633 4.28996 20.6158 4.84246C21.1261 5.35163 21.9137 5.64088 23.01 5.68204L23.2917 5.68746C24.3295 5.68746 24.3728 7.18029 23.4217 7.30379L23.2917 7.31246C22.0458 7.31246 21.1683 7.60496 20.6158 8.15746C20.1067 8.66879 19.8174 9.45529 19.7762 10.5516L19.7708 10.8333C19.7708 11.9166 18.1458 11.9166 18.1458 10.8333C18.1458 9.58746 17.8533 8.70996 17.3008 8.15746C16.7895 7.64829 16.003 7.35904 14.9067 7.31788L14.625 7.31246C13.5872 7.31246 13.5438 5.81963 14.495 5.69613L14.625 5.68746C15.8708 5.68746 16.7483 5.39496 17.3008 4.84246C17.8533 4.28996 18.1458 3.41246 18.1458 2.16663C18.1458 1.08329 19.7708 1.08329 19.7708 2.16663Z" fill="#0038A8"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
