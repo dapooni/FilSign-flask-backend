@@ -1,0 +1,3 @@
+[submodule "FilSign-action-detection"]
+	path = FilSign-action-detection
+	url = https://github.com/dapooni/FilSign-action-detection.git
